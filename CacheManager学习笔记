@@ -1,0 +1,13 @@
+CacheManager运行原理流程图和源码详解
+1.CacheManager 管理的是缓存中的数据，缓存可以是基于内存的缓存，也可以是基于磁盘的缓存；
+CacheManager 需要通过 BlockManager 来操作数据；
+每当 Task 运行的时候会调用 RDD 的 Compute 方法进行计算，而 Compute 方法会调用 iterator 方法；
+这个方法是 final 级别不能覆写但可以被子类去使用，可以看见 RDD 是优先使用内存的，这个方法很关键！！如果存储级别不等于 NONE 的情况下，程序会先找 CacheManager 获得数据，否则的话会看有没有进行 Checkpoint
+Cache 在工作的时候会最大化的保留数据，但是数据不一定绝对完整，因为当前的计算如果需要内存空间的话，那么内存中的数据必需让出空间，这是因为执行比缓存重要！此时如何在RDD 持久化的时候同时指定了可以把数据放左Disk 上，那么部份 Cache 的数据可以从内存转入磁盘，否则的话，数据就会丢失！
+你进行Cache时，BlockManager 会帮你进行管理，我们可以通过 Key 到 BlockManager 中找出曾经缓存的数据。
+2.
+具体 CacheManager 在获得缓存数据的时候会通过 BlockManager 来抓到数据，优先在本地找数据或者的话就远程抓取数据。
+BlockManger.getLocal 然后转过来调用 doGetLocal 方法，在 doGetLocal 的实现中看到缓存其实不仅仅在内存中，可以在内存、磁盘、也可以在 OffHeap (Tachyon) 中
+在上一步中如果本地没有缓存的话就调用 getRemote 方法从远程抓取数据
+如果 CacheManager 没有通过 BlockManager 获得缓存内容的话，其实会通过 RDD 的 computeOrReadCheckpoint 方法来获得数据。
+上述首先检查看当前的 RDD 是否进行了 Checkpoint ，如果进行了话就直接读取 checkpoint 的数据，否则的话就必需进行计算； Checkpoint 本身很重要；计算之后通过 putInBlockManager 会把数据按照 StorageLevel 重新缓存起来。
