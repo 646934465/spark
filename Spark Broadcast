@@ -1,0 +1,12 @@
+Spark Broadcast内幕解密：Broadcast运行机制彻底解密、Broadcast源码解析、Broadcast最佳实践
+Broadcast 就是将数据从一个节点发送到其他的节点上; 例如 Driver 上有一张表，而 Executor 中的每个并行执行的Task (100万个Task) 都要查询这张表的话，那我们通过 Broadcast 的方式就只需要往每个Executor 把这张表发送一次就行了，Executor 中的每个运行的 Task 查询这张唯一的表，而不是每次执行的时候都从 Driver 中获得这张表！
+
+Broadcast 是分布式的共享数据，默认情况下只要程序在运行 Broadcast 变量就会存在，因为 Broadcast 在底层是通过 BlockManager 管理的，Broadcast 是在创建 SparkContext 时被创建的！你也可以手动指定或者配置具体周期来销毁 Broadcast 变量！Broadcast 一般用于处理共享配置文件，通用的数据子，常用的数据结构等等；但是不适合存放太大的数据在Broadcast。Broadcast 不会内存溢出，因为其数据的保存的 Storage Level 是 MEMORY_AND_DISK 的方式（首先优先放在内存中，如果内存不够才放在磁盘上）虽然如此，我们也不可以放入太大的数据在 Broadcast 中，因为网络 I/O 和可能的单点压力会非常大！Broadcast 有两种方式，HttpBroadcast 和 TorrentBroadcast。
+
+广播 Broadcast 变量只是只读变量，最为轻松的保持数据的一致性！
+
+没有广播的情况：通过网络传输把变量发送到每一个 Task 中，会产生4个Number的数据副本，每个副本都会占用一定的内存空间，如果变量比较大，会导致则极易出现OOM。
+使用广播的情况：通过Broadcast把变量传输到Executor的内存中，Executor级别共享唯一的一份广播变量，极大的减少网络传输和内存消耗！ ！ ！
+第一种就是 HttpBroadcast，在 Driver 中创建一个文件夹，搞一个 HttpServer，你需要的话 Executor 通过 Http 抓一份过来，放在 BlockManager 中，下一次再用的话就首先到 BlockManager 取，BlockManager 没有再去 Driver 去取，所以这存在单点故障，和网络IO性能问题。
+
+第二种就是 TorrentBroadcast，首先是 Driver 中有，创建一个文件夹，它是向 BroadcastManagerMaster 注册，然后 Executor 需要的话自己拿一份，拿一份的时候它要通知 BlockManagerMaster 就有另外一份副本，后绩 Executor 要拿副本就有多种选择。
