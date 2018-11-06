@@ -1,0 +1,19 @@
+BlockManager架构原理、运行流程图和源码解密
+BlockManager 是管理整个Spark运行时的数据读写的，当然也包含数据存储本身，在这个基础之上进行读写操作，由于 Spark 本身是分布式的，所以 BlockManager 也是分布式的
+1.  从 Application 启动的角度来观察BlockManager
+在 Application 启动的时候会在 spark-env.sh 中注册 BlockMangerMaster 以及 MapOutputTracker，其中：
+BlockManagerMaster：对整集群的 Block 数据进行管理；
+MapOutputTracker：跟踪所有的 Mapper 的输出；
+BlockManagerMasterEndpoint 本身是一个消息体，会负责通过远程消息通信的方式去管理所有节点的 BlockManager；
+每个启动一个 ExecutorBackend 都会实例化 BlockManager 并通过远程通信的方式注册给 BlockMangerMaster；实际上是 Executor 中的 BlockManager 注册给 Driver 上的 BlockMangerMasterEndpoiont；(BlockManger 是 Driver 中的一个普通的对象而己，所以无法直接对一个对象做HA)
+MemoryStore 是 BlockManager 中专门负责内存数据存储和读写的类，MemoryStore 是以 一个又一个 Block 为单位的
+DiskStore 是 BlockManager 中专门负责磁盘数据存储和读写的类；
+DiskBlockManager：管理 LogicalBlock 与 Disk 上的 PhysicalBlock 之间的映射关联并负责磁盘的文件的创建，读写等;
+2.  从 Job 运行的角度来观察BlockManager
+首先通过 MemoryStore 来存储广播变量
+在 Driver 中是通过 BlockManagerInfo 来管理集群中每个 ExecutorBackend 中的 BlockManager 中的元数据信息的;
+当改变了具体的 ExecutorBackend 上的 Block 的信息后就必需发消息给 Driver 中的 BlockManagerMaster 来更新相应的 BlockManagerInfo 的信息
+当执行第二个 Stage 之后，第二个 Stage 会向 Driver 中的 MapOutputTrackerMasterEndpoint 发消息请求上一個 Stage 中相应的输出，此時 MapOutputTrackerMaster 会把上一個 Stage 的输出数据的元数据信息发送给当前请求的 Stage  
+3.  BlockManager 源码解析
+BlockManager 会运行在 driver 和 Executor 上面，在 driver 上面的 BlockManager 是负责管理整个集群所有 Executor 中的 BlockManager，BlockManager 本身也是 Master-Slave 结构的，所谓Master-Slave 结构就是一切的调度和工作都是由 Master 去触发的，Slave本身就是专注于干活的，而 Executor 在启动的时候，一定会实例化 BlockManager。
+BlockManager主要提供了读取和写数据的接口，可以从本地或者是远程读取和写数据，读写数据可以基于内存、磁盘或者是堆外空间 (OffHeap)。如果想使用 BlockManager 的话，必须调用 initialize 方法。程序进行 Shuffle 的时候是通过 BlockManager 去管理的。
